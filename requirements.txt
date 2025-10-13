@@ -1,0 +1,11 @@
+requests
+pandas
+python-dateutil
+urllib3
+lxml
+beautifulsoup4
+SQLAlchemy
+psycopg2-binary
+selenium
+beautifulsoup4
+webdriver-manager
