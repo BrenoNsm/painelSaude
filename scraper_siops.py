@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from datetime import datetime
 import csv, time, re, unicodedata, os
 
-URL = "http://siops.datasus.gov.br/consleirespfiscal_uf.php?S=1&UF=14;&Ano=2025&Periodo=18"
+URL = "http://siops.datasus.gov.br/consleirespfiscal.php"
 
 # ---------- util ----------
 def parse_brl_number(txt: str):
@@ -37,11 +37,28 @@ def slugify(text: str, maxlen: int = 60):
 
 def setup_driver(headless=False):
     opts = webdriver.ChromeOptions()
+
+    # ✅ robustez no Linux/containers
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--disable-features=VizDisplayCompositor")
+
+    # (opcional) roda sem UI — ótimo pra servidor
     if headless:
         opts.add_argument("--headless=new")
-    opts.add_argument("--start-maximized")
+
+    # qualidade de vida
     opts.add_argument("--window-size=1366,768")
+    # se quiser maximizar quando NÃO headless:
+    # opts.add_argument("--start-maximized")
+
+    # (opcional) deixar mais leve
+    # opts.add_argument("--disable-extensions")
+    # opts.add_argument("--disable-infobars")
+
     return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
+
 
 def switch_to_results_context(driver, wait):
     time.sleep(1.0)
@@ -142,82 +159,102 @@ def main():
 
     try:
         driver.get(URL)
-        wait.until(EC.presence_of_element_located((By.NAME, "cmbAno")))
+        wait.until(EC.presence_of_element_located((By.NAME, "cmbUF")))
 
-        select_ano = Select(driver.find_element(By.NAME, "cmbAno"))
+        # Seleciona sempre Roraima
+        select_uf = Select(driver.find_element(By.NAME, "cmbUF"))
+        select_uf.select_by_visible_text("Roraima")
+        time.sleep(2)
+
+        # captura todos os municípios da UF
+        select_mun = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbMunicipio[]"))))
+        municipios = [opt.text.strip() for opt in select_mun.options if opt.text.strip()]
+        print(f"🏙️ Municípios encontrados ({len(municipios)}): {municipios}")
+
+        # captura anos disponíveis
+        select_ano = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbAno"))))
         todos_anos = [opt.text.strip() for opt in select_ano.options if opt.text.strip().isdigit()]
         anos = [a for a in todos_anos if 2008 <= int(a) <= ano_atual]
         print(f"📅 Anos filtrados: {anos}")
 
-        for ano in anos:
-            try:
-                # seleciona o ano
-                select_ano = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbAno"))))
-                select_ano.select_by_visible_text(ano)
+        # loop por município → ano → período
+        for municipio in municipios:
+            print(f"\n====== Município: {municipio} ======")
+            for ano in anos:
+                try:
+                    select_uf = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbUF"))))
+                    select_uf.select_by_visible_text("Roraima")
 
-                # obtém todos os períodos disponíveis para o ano
-                select_periodo = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbPeriodo"))))
-                periodos = [opt.text.strip() for opt in select_periodo.options if opt.text.strip()]
-                print(f"\n=== Ano {ano}: {len(periodos)} períodos encontrados: {periodos}")
+                    select_mun = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbMunicipio[]"))))
+                    select_mun.select_by_visible_text(municipio)
 
-                for periodo in periodos:
-                    print(f"\n→ Processando Ano {ano}, Período {periodo}...")
-                    try:
-                        # precisa redefinir os selects a cada iteração
-                        select_ano = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbAno"))))
-                        select_ano.select_by_visible_text(ano)
-                        select_periodo = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbPeriodo"))))
-                        select_periodo.select_by_visible_text(periodo)
+                    select_ano = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbAno"))))
+                    select_ano.select_by_visible_text(ano)
 
-                        btn = wait.until(EC.element_to_be_clickable((By.NAME, "BtConsultar")))
-                        btn.click()
+                    select_periodo = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbPeriodo"))))
+                    periodos = [opt.text.strip() for opt in select_periodo.options if opt.text.strip()]
+                    print(f"→ {municipio} - {ano}: {len(periodos)} períodos: {periodos}")
 
-                        ok_ctx = switch_to_results_context(driver, wait)
-                        if not ok_ctx:
-                            print(f"⚠️ Não consegui confirmar o contexto de resultado ({ano}-{periodo})")
-                            driver.get(URL)
-                            continue
+                    for periodo in periodos:
+                        print(f"   ⏳ {municipio} - Ano {ano} - Período {periodo}")
+                        try:
+                            select_uf = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbUF"))))
+                            select_uf.select_by_visible_text("Roraima")
 
-                        wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table.tam2.tdExterno")) > 0)
-                        tabelas = driver.find_elements(By.CSS_SELECTOR, "table.tam2.tdExterno")
-                        print(f"🔎 {len(tabelas)} tabelas encontradas ({ano}-{periodo})")
+                            select_mun = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbMunicipio[]"))))
+                            select_mun.select_by_visible_text(municipio)
 
-                        out_dir = os.path.join("siops_csv", ano, f"periodo_{periodo}")
-                        os.makedirs(out_dir, exist_ok=True)
+                            select_ano = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbAno"))))
+                            select_ano.select_by_visible_text(ano)
 
-                        for idx, tbl in enumerate(tabelas, start=1):
-                            matrix = table_to_matrix(tbl)
-                            titulo = guess_title_from_table(matrix)
-                            slug = slugify(titulo)
+                            select_periodo = Select(wait.until(EC.presence_of_element_located((By.NAME, "cmbPeriodo"))))
+                            select_periodo.select_by_visible_text(periodo)
 
-                            # ignora a tabela "UF: ..."
-                            titulo_norm = (titulo or "").strip().lower()
-                            if slug.startswith("uf_") or titulo_norm.startswith("uf:"):
-                                print(f"↷ Ignorando Tabela {idx:02d} ({titulo})")
+                            btn = wait.until(EC.element_to_be_clickable((By.NAME, "BtConsultar")))
+                            btn.click()
+
+                            ok_ctx = switch_to_results_context(driver, wait)
+                            if not ok_ctx:
+                                print(f"⚠️ Contexto não encontrado {municipio}-{ano}-{periodo}")
+                                driver.get(URL)
                                 continue
 
-                            fname = f"siops_table{idx:02d}_{slug}.csv"
-                            path = os.path.join(out_dir, fname)
-                            save_matrix_csv(path, matrix)
-                            nlin, ncol = len(matrix), max((len(r) for r in matrix), default=0)
-                            print(f"✓ Tabela {idx:02d}: '{titulo}' ({nlin}x{ncol}) → {path}")
+                            wait.until(lambda d: len(d.find_elements(By.CSS_SELECTOR, "table.tam2.tdExterno")) > 0)
+                            tabelas = driver.find_elements(By.CSS_SELECTOR, "table.tam2.tdExterno")
+                            print(f"      🔎 {len(tabelas)} tabelas encontradas")
 
-                        driver.get(URL)
-                        wait.until(EC.presence_of_element_located((By.NAME, "cmbAno")))
+                            out_dir = os.path.join("siops_csv", slugify(municipio), ano, f"periodo_{periodo}")
+                            os.makedirs(out_dir, exist_ok=True)
 
-                    except Exception as e:
-                        print(f"❌ Erro ao processar Ano {ano}, Período {periodo}: {e}")
-                        driver.get(URL)
-                        wait.until(EC.presence_of_element_located((By.NAME, "cmbAno")))
-                        continue
+                            for idx, tbl in enumerate(tabelas, start=1):
+                                matrix = table_to_matrix(tbl)
+                                titulo = guess_title_from_table(matrix)
+                                slug = slugify(titulo)
+                                titulo_norm = (titulo or "").strip().lower()
+                                if slug.startswith("uf_") or titulo_norm.startswith("uf:"):
+                                    print(f"      ↷ Ignorando Tabela {idx:02d} ({titulo})")
+                                    continue
+                                fname = f"siops_table{idx:02d}_{slug}.csv"
+                                path = os.path.join(out_dir, fname)
+                                save_matrix_csv(path, matrix)
+                                print(f"      ✓ {fname}")
 
-            except Exception as e:
-                print(f"❌ Erro ao processar Ano {ano}: {e}")
-                driver.get(URL)
-                wait.until(EC.presence_of_element_located((By.NAME, "cmbAno")))
-                continue
+                            driver.get(URL)
+                            wait.until(EC.presence_of_element_located((By.NAME, "cmbUF")))
 
-        print("\n✅ Finalizado. CSVs gerados em: siops_csv/")
+                        except Exception as e:
+                            print(f"❌ Erro em {municipio}-{ano}-{periodo}: {e}")
+                            driver.get(URL)
+                            wait.until(EC.presence_of_element_located((By.NAME, "cmbUF")))
+                            continue
+
+                except Exception as e:
+                    print(f"❌ Erro em {municipio}-{ano}: {e}")
+                    driver.get(URL)
+                    wait.until(EC.presence_of_element_located((By.NAME, "cmbUF")))
+                    continue
+
+        print("\n✅ Finalizado. CSVs em: siops_csv/")
         input("Pressione ENTER para sair…")
 
     finally:
