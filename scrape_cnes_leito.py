@@ -1,7 +1,6 @@
-# scrape_cnes_rr_tipo_leito_tbody.py
 import re, time, unicodedata
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 import pandas as pd
@@ -13,8 +12,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # -------------------- Config --------------------
 UF_CODE = 14  # Roraima
-VCOMP_INICIO = "201202"
-VCOMP_FIM    = "202508"
+# defina claramente o intervalo:
+VCOMP_INICIO = (2012, 1)   # jan/2012  -> ajuste conforme sua fonte
+VCOMP_FIM    = None        # None = até o mês corrente; ou ex.: (2025, 6)
 
 SAIDA_POR_MES = False
 SAIDA_ARQUIVO = "cnes_rr_tipo_leito_201202_202508.csv"
@@ -39,14 +39,33 @@ def _to_int(x):
     s = re.sub(r"[^\d\-]", "", str(x or "")).strip()
     return pd.NA if s == "" else int(s)
 
-def gerar_competencias(inicio_yyyymm: str, fim_yyyymm: str):
-    y0, m0 = int(inicio_yyyymm[:4]), int(inicio_yyyymm[4:])
-    y1, m1 = int(fim_yyyymm[:4]), int(fim_yyyymm[4:])
-    cur = datetime(y0, m0, 1)
-    end = datetime(y1, m1, 1)
-    while cur <= end:
-        yield f"{cur.year}{cur.month:02d}"
-        cur += relativedelta(months=1)
+def gerar_competencias(vcomp_inicio=None, vcomp_fim=None):
+    """
+    Gera lista de competencias AAAAMM (str) mês a mês, inclusive.
+    vcomp_inicio/fim podem ser tupla (ano, mes) ou None.
+    """
+    if vcomp_inicio is None:
+        vcomp_inicio = VCOMP_INICIO
+    if vcomp_fim is None:
+        if VCOMP_FIM is None:
+            hoje = date.today()
+            vcomp_fim = (hoje.year, hoje.month)
+        else:
+            vcomp_fim = VCOMP_FIM
+
+    yi, mi = vcomp_inicio
+    yf, mf = vcomp_fim
+
+    comps = []
+    y, m = yi, mi
+    while (y < yf) or (y == yf and m <= mf):
+        comps.append(f"{y:04d}{m:02d}")
+        # incrementa mês
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return comps
 
 def baixar_municipios_ibge():
     r = requests.get(IBGE_MUN_URL, headers=HEADERS, timeout=TIMEOUT)
