@@ -7,7 +7,7 @@ class DBConfig:
     host: str = os.getenv("PGHOST", "localhost")
     port: int = int(os.getenv("PGPORT", "5432"))
     user: str = os.getenv("PGUSER", "postgres")
-    password: str = os.getenv("PGPASSWORD", "sva337rro")
+    password: str = os.getenv("PGPASSWORD", "#")
     database: str = os.getenv("PGDATABASE", "saude_rr")
 
 def as_dsn(cfg: DBConfig) -> str:
