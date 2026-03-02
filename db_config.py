@@ -1,14 +1,17 @@
 # db_config.py
 import os
 from dataclasses import dataclass
+from dotenv import load_dotenv
+
+load_dotenv()
 
 @dataclass(frozen=True)
 class DBConfig:
-    host: str = os.getenv("PGHOST", "localhost")
-    port: int = int(os.getenv("PGPORT", "5432"))
-    user: str = os.getenv("PGUSER", "postgres")
-    password: str = os.getenv("PGPASSWORD", "#")
-    database: str = os.getenv("PGDATABASE", "saude_rr")
+    host: str = os.getenv("DB_Host")
+    port: int = int(os.getenv("DB_Port"))
+    user: str = os.getenv("DB_user")
+    password: str = os.getenv("DB_Password")
+    database: str = os.getenv("DB_Database")
 
 def as_dsn(cfg: DBConfig) -> str:
     return (

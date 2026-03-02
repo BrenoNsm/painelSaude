@@ -1,2 +1,4 @@
 .venv
 siops_csv
+.env
+__pycache__
